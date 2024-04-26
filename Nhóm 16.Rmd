@@ -1,0 +1,287 @@
+---
+title: "baocao"
+author: "Nhóm 16"
+date: "2023-12-18"
+output: html_document
+---
+Các thư viện có trong dự án
+```{r}
+library(ggplot2)
+library(corrplot)
+library(dplyr)
+library(caret)
+library(caTools)
+library(randomForest)
+library(rpart)
+library(prediction)
+```
+
+In ra các dòng dữ liệu từ CSV
+```{r}
+path_calories <-"D:/calories.csv"
+path_excercise <- "D:/exercise.csv"
+data_calories <- read.csv(path_calories)
+data_exercise <- read.csv(path_excercise)
+print(head(data_calories))
+print(head(data_exercise))
+```
+Gộp 2 tệp dữ liệu
+```{r}
+data_full = merge(data_calories, data_exercise, by = "User_ID")
+print(head(data_full))
+```
+In số lượng dòng và cột
+```{r}
+data_size = dim(data_full)
+cat("Số dòng:", data_size[1], "\n")
+cat("Số cột:", data_size[2], "\n")
+str(data_full)
+```
+Kiểm tra dữ liệu đầu vào
+```{r}
+cat("Số các giá trị trùng lặp: ", sum(duplicated(data_full)), "\n")
+cat("Số dòng chứa giá trị null: ", sum(!complete.cases(data_full)), "\n")
+summary(data_full)
+```
+Thay đổi giá trị Gender
+```{r}
+# Thay đổi giá trị trong cột 'Gender'
+data_full$Gender <- ifelse(data_full$Gender == 'male', 0, 1)
+# In ra một số dòng đầu của dataframe
+print(head(data_full))
+```
+
+Biểu đồ phân tán Quan hệ giữa Calories và Duration
+```{r}
+ggplot(data_full, aes(x = Duration, y = Calories,)) +
+  geom_point(color = "blue") +
+  labs(x = "Duration of exercise in terms of minutes",
+       y = "Calories Burned",
+       title = "Relationship between the duration of an activity and the calories burned") +
+  theme_minimal()
+```
+Biểu đồ cột số lượng nam và nữ trong dataset
+```{r}
+gender_counts <- table(data_full$Gender)
+ggplot(data = data.frame(Gender = names(gender_counts), Count = as.numeric(gender_counts)),
+       aes(x = Gender, y = Count, fill = Gender)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Giới Tính",
+       y = "Số Lượng",
+       title = "Số lượng Nam và Nữ trong Tập dữ liệu") +
+  scale_fill_manual(values = c("0" = "lightblue", "1" = "pink")) +  
+  theme_minimal()
+```
+Biểu đồ cột và đường thể hiện độ tuổi trong dataset
+```{r}
+age_counts <- table(data_full$Age)
+ggplot(data = data.frame(Age = as.numeric(names(age_counts)), Count = as.numeric(age_counts)),
+       aes(x = Age, y = Count)) +
+  geom_bar(stat = "identity", fill = "seagreen", color = "black", alpha = 0.9) +
+  geom_line(stat = "identity", color = "red", size = 1) +
+  labs(x = "Tuổi",
+       y = "Số Lượng",
+       title = "Phân phối Tuổi trong Bộ dữ liệu với Đường xu hướng") +
+  theme_minimal()
+```
+Heat map thể hiện mức độ tương quan giữa các thuộc tính trong dataset
+```{r}
+# Lấy dữ liệu từ các cột số
+numeric_columns <- c("Calories", "Age", "Height", "Weight", "Duration", "Heart_Rate", "Body_Temp")
+corr_df <- data_full[numeric_columns]
+# Tính ma trận tương quan
+correlation_matrix <- cor(corr_df)
+# Thiết lập các tùy chọn cho biểu đồ
+heatmap_options <- list(annot = TRUE, 
+                        col = colorRampPalette(c("lightblue", "blue"))
+                        (100), center = 0)
+# Vẽ biểu đồ tương quan
+corrplot(correlation_matrix, method = "color", 
+         addCoef.col = "black", tl.col = "black", 
+         tl.srt = 45, diag = FALSE, col = heatmap_options$col)
+# Đặt tiêu đề cho biểu đồ
+title("Biểu đồ thể hiện tương quan của các cột")
+```
+BoxPlot hiển thị mối quan hệ giữa nhịp tim (Heart Rate) và 
+nhiệt độ cơ thể (Body Temperature) dựa trên giá trị "Duration" (thời gian)
+```{r}
+ggplot(data_full, aes(x = Duration, y = Heart_Rate, fill = factor(Duration))) +
+  geom_boxplot() +
+  labs(title = 'Phân phối Nhịp Tim theo Thời gian',
+       x = 'Duration',
+       y = 'Nhịp Tim') +
+  theme_minimal()
+
+
+```
+ScatterPlot hiển thị cân nặng và chiều cao với Calories
+```{r}
+# Calculate calorie counts
+calorie_counts <- table(data_full$Calories)
+
+# Create labels for the legend
+labels <- paste("Calories: ", names(calorie_counts), " (", calorie_counts, ")", sep="")
+# Create the scatter plot
+ggplot(data_full, aes(x=Weight, y=Height, color=Calories)) +
+  geom_point() +
+  labs(title="Scatter Plot of Weight vs Height with Calories Color Mapping",
+       x="Weight",
+       y="Height") +
+  theme(legend.position="bottom") +
+  scale_color_gradient()
+```
+
+```{r}
+# Tách X và y từ data_full
+X <- data_full[, !(names(data_full) %in% c("Calories"))]
+y <- data_full$Calories
+print(head(X))
+print(head(y))
+```
+Drop cột User_ID
+```{r}
+X <- X[, !(names(X) %in% c("User_ID"))]
+print(head(X))
+```
+
+Chia các dữ liệu thành X_train, X_test, y_train, y_test
+```{r} 
+# In ra kích thước của X và y
+cat("Kích thước của X:", dim(X), "\n")
+cat("Kích thước của y:", length(y), "\n")
+# Chia tập dữ liệu
+set.seed(123)
+# Chia dữ liệu thành tập huấn luyện (training_set) và tập kiểm thử (test_set)
+split <- sample.split(data_full$Calories, SplitRatio = 0.8)
+# Chia dữ liệu X, y thành tập huấn luyện và tập kiểm thử
+X_train <- X[split, ]
+y_train <- y[split]
+X_test <- X[!split, ]
+y_test <- y[!split]
+
+# In ra kích thước của các tập dữ liệu
+cat("Kích thước tập huấn luyện (X_train):", dim(X_train), "\n")
+cat("Kích thước tập kiểm thử (X_test):", dim(X_test), "\n")
+cat("Kích thước nhãn tập huấn luyện (y_train):", length(y_train), "\n")
+cat("Kích thước nhãn tập kiểm thử (y_test):", length(y_test), "\n")
+```
+Decision Tree
+```{r}
+# Huấn luyện mô hình Decision Tree
+dt_model <- rpart(y_train ~ ., data = data.frame(y_train, X_train))
+
+# Dự đoán trên dữ liệu kiểm tra
+dt_predictions <- predict(dt_model, newdata = data.frame(X_test))
+
+# Tính Các sai số
+dt_mae <- MAE(y_test, dt_predictions)
+dt_mse <- mean((y_test - dt_predictions)^2)
+dt_rmse <- sqrt(dt_mse)
+dt_r2 <- 1 - dt_mse / var(y_test)
+
+# In các thông số đánh giá
+cat("\nDecision Tree Metrics:\n")
+cat("Mean Absolute Error:", dt_mae, "\n")
+cat("Mean Squared Error:", dt_mse, "\n")
+cat("Root Mean Squared Error:", dt_rmse, "\n")
+cat("R2 Score:", dt_r2, "\n")
+```
+
+```{r}
+# In kết quả dự đoán
+dt_df <- data.frame(dt_predictions)
+result <- data.frame(y_test)
+result <- result[order(row.names(result)), ]
+y_both <- cbind(dt_df, result)
+colnames(y_both) <- c('Decision Tree', 'Thuc Te')
+print(y_both)
+```
+RANDOM FOREST
+```{r}
+# Huấn luyện mô hình Random Forest
+rf_model <- randomForest(x = X_train, y = y_train, ntree = 500)
+
+# Dự đoán trên tập kiểm tra
+rf_predictions <- predict(rf_model, newdata = X_test)
+
+# Tính Các sai số
+rf_mae <- MAE(y_test, rf_predictions)
+cat("\nRandom Forest Metrics:\n")
+
+cat("Mean Absolute Error:", rf_mae, "\n")
+
+rf_mse <- mean((y_test - rf_predictions)^2)
+cat("Mean Squared Error:", rf_mse, "\n")
+
+rf_rmse <- sqrt(rf_mse)
+cat("Root Mean Squared Error:", rf_rmse, "\n")
+
+rf_r2 <- 1 - sum((y_test - rf_predictions)^2) / sum((y_test - mean(y_test))^2)
+cat("R-squared (R2):", rf_r2, "\n")
+```
+```{r}
+# Create a data frame for predicted and original calories
+calories_df <- data.frame(RandomForest = rf_predictions, ThucTe = y_test)
+print(calories_df)
+```
+
+
+
+
+Hồi quy tuyến tính
+```{r}
+# Huấn luyện mô hình Linear Regression
+model <- lm(y_train ~ ., data = cbind(y_train, X_train))
+
+# Dự đoán trên tập kiểm thử
+lm_predictions <- predict(model, newdata = data.frame(X_test))
+
+#Tính các sai số
+lm_mae <- MAE(y_test, lm_predictions)
+lm_mse <- mean((y_test - lm_predictions)^2)
+lm_rmse <- sqrt(lm_mse)
+lm_r2 <- 1 - lm_mse / var(y_test)
+
+# In thông số đánh giá
+cat("\nHồi Quy Tuyến Tính Metrics:\n")
+cat("Mean Absolute Error:", lm_mae, "\n")
+cat("Mean Squared Error:", lm_mse, "\n")
+cat("Root Mean Squared Error:", lm_rmse, "\n")
+cat("R2 Score:", lm_r2, "\n")
+
+```
+```{r}
+# Dự đoán và so sánh với kết quả thực tế
+lin_reg_df <- data.frame(lm_preditions, y_test)
+colnames(lin_reg_df) <- c('Hoi Quy Tuyen Tinh', 'Thuc Te')
+print(lin_reg_df)
+```
+
+```{r}
+# In kết quả dự đoán
+sosanh <- data.frame( DecisionTree = dt_predictions, RandomForest = rf_predictions, HoiQuyTuyenTinh = lm_preditions, ThucTe = y_test)
+print(sosanh)
+```
+
+```{r}
+# In các thông số đánh giá cho từng phương pháp
+cat("\nCác thông số đánh giá cho từng phương pháp\n")
+
+cat("\nDecision Tree Metrics:\n")
+cat("Mean Absolute Error:", dt_mae, "\n")
+cat("Mean Squared Error:", dt_mse, "\n")
+cat("Root Mean Squared Error:", dt_rmse, "\n")
+cat("R2 Score:", dt_r2, "\n")
+
+cat("\nRandomForest Metrics:\n")
+cat("Mean Absolute Error:", rf_mae, "\n")
+cat("Mean Squared Error:", rf_mse, "\n")
+cat("Root Mean Squared Error:", rf_rmse, "\n")
+cat("R2 Score:", rf_r2, "\n")
+
+cat("\nHồi Quy Tuyến Tính Metrics:\n")
+cat("Mean Absolute Error:", lm_mae, "\n")
+cat("Mean Squared Error:", lm_mse, "\n")
+cat("Root Mean Squared Error:", lm_rmse, "\n")
+cat("R2 Score:", lm_r2, "\n")
+```
